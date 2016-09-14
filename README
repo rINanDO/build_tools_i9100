@@ -1,0 +1,14 @@
+Scripts and patches to build ROMs for Samsung Galaxy S2 
+=======================================================
+
+How to get:
+-------------
+Run "git clone https://github.com/rinando/build_tools_i9100.git -b du-m-caf" in root of ROM sources directory for Dirty Unicorns Marshmallow
+
+Description of scripts:
+-------------
+resync - reset all changes in ROM sources, sync and get prebuilts. Use "-o" to reset changes only.
+
+patch - patch ROM sources.
+
+

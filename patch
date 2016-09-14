@@ -1,0 +1,33 @@
+#!/bin/bash
+
+
+COUNT=0
+CURRENT_DIR="$PWD"
+PD="$CURRENT_DIR/patches"
+PATCHES=(
+'build				build.patch'
+'frameworks/av			frameworks_av.patch'
+'frameworks/base		frameworks_base.patch'
+'frameworks/native		frameworks_native.patch'
+'frameworks/opt/telephony	frameworks_opt_telephony.patch'
+'packages/services/Telephony	packages_services_Telephony.patch'
+'system/media			system_media.patch'
+'system/vold			system_vold.patch'
+'vendor/du			vendor_du.patch'
+)
+
+
+while [ "x${PATCHES[COUNT]}" != "x" ]
+do
+	CURRENT="${PATCHES[COUNT]}"
+	FOLDER=`echo "$CURRENT" | awk '{print $1}'`
+	PATCH=`echo "$CURRENT" | awk '{print $2}'`
+
+	cd "../$FOLDER"
+	echo Patching "$FOLDER" ...
+	git apply "$PD/$PATCH"
+#	git am --signoff "$PD/$PATCH"
+	cd "$CURRENT_DIR"
+
+	COUNT=$(($COUNT + 1))
+done

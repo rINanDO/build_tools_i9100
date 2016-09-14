@@ -1,0 +1,41 @@
+cd ..
+
+COUNT=0
+CURRENT_DIR="$PWD"
+UPSTREAMNAME="upstream" 
+
+PROJECTS=(
+'vendor/du				https://www.github.com/dirtyunicorns/android_vendor_du' 
+'build					https://www.github.com/dirtyunicorns/android_build' 
+'frameworks/av				https://www.github.com/dirtyunicorns/android_frameworks_av'
+'frameworks/base			https://www.github.com/dirtyunicorns/android_frameworks_base'
+'frameworks/native			https://www.github.com/dirtyunicorns/android_frameworks_native'
+'frameworks/opt/telephony		https://www.github.com/dirtyunicorns/android_frameworks_opt_telephony'
+'packages/services/Telephony		https://www.github.com/dirtyunicorns/android_packages_services_Telephony'
+'system/media				https://www.github.com/dirtyunicorns/android_system_media'
+'system/vold				https://www.github.com/dirtyunicorns/android_system_vold'
+)
+
+while [ "x${PROJECTS[COUNT]}" != "x" ]
+do
+	cd $CURRENT_DIR
+	CURRENT="${PROJECTS[COUNT]}"
+	FOLDER=`echo "$CURRENT" | awk '{print $1}'`
+	GITURL=`echo "$CURRENT" | awk '{print $2}'`
+
+	cd $FOLDER
+	echo Entering "$FOLDER" ...
+
+	REMOTES="$(git remote -v)" 
+	CURRENTUPSTREAMURL=`echo "${REMOTES}"|grep fetch|grep $UPSTREAMNAME|awk '{print $2}'`
+	if [ "$CURRENTUPSTREAMURL" == "$GITURL" ]; then
+		echo $UPSTREAMNAME already installed
+	else
+		git remote add "$UPSTREAMNAME" "$GITURL"
+	fi
+	git fetch $UPSTREAMNAME
+
+	COUNT=$(($COUNT + 1))
+done
+
+cd $CURRENT_DIR

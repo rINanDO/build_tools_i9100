@@ -1,0 +1,941 @@
+From f168ba490f77263663afee0d77f517791b5ac6bd Mon Sep 17 00:00:00 2001
+From: Ketut Putu Kumajaya <ketut.kumajaya@gmail.com>
+Date: Wed, 2 Dec 2015 16:17:23 +0700
+Subject: [PATCH 01/12] vold: Native exfat driver support
+
+* exfat-nofuse https://github.com/dorimanx/exfat-nofuse
+
+Change-Id: I0b7d7b3f3e21defa83e08564b3fdb67a9957edc0
+---
+ Android.mk   |  4 ++++
+ fs/Exfat.cpp | 12 ++++++++++++
+ 2 files changed, 16 insertions(+)
+
+diff --git a/Android.mk b/Android.mk
+index ce69f3e..c16ed1b 100644
+--- a/Android.mk
++++ b/Android.mk
+@@ -105,6 +105,10 @@ common_shared_libraries += libcryptfs_hw
+ LOCAL_CFLAGS += -DCONFIG_HW_DISK_ENCRYPTION
+ endif
+ 
++ifeq ($(TARGET_KERNEL_HAVE_EXFAT),true)
++LOCAL_CFLAGS += -DCONFIG_KERNEL_HAVE_EXFAT
++endif
++
+ LOCAL_SHARED_LIBRARIES := $(common_shared_libraries)
+ LOCAL_STATIC_LIBRARIES := $(common_static_libraries)
+ 
+diff --git a/fs/Exfat.cpp b/fs/Exfat.cpp
+index 24a7831..7cfb019 100644
+--- a/fs/Exfat.cpp
++++ b/fs/Exfat.cpp
+@@ -33,7 +33,11 @@ namespace exfat {
+ 
+ static const char* kMkfsPath = "/system/bin/mkfs.exfat";
+ static const char* kFsckPath = "/system/bin/fsck.exfat";
++#ifdef CONFIG_KERNEL_HAVE_EXFAT
++static const char* kMountPath = "/system/bin/mount";
++#else
+ static const char* kMountPath = "/system/bin/mount.exfat";
++#endif
+ 
+ bool IsSupported() {
+     return access(kMkfsPath, X_OK) == 0
+@@ -58,13 +62,21 @@ status_t Mount(const std::string& source, const std::string& target, bool ro,
+     const char* c_target = target.c_str();
+ 
+     sprintf(mountData,
++#ifdef CONFIG_KERNEL_HAVE_EXFAT
++            "noatime,nodev,nosuid,uid=%d,gid=%d,fmask=%o,dmask=%o,%s,%s",
++#else
+             "noatime,nodev,nosuid,dirsync,uid=%d,gid=%d,fmask=%o,dmask=%o,%s,%s",
++#endif
+             ownerUid, ownerGid, permMask, permMask,
+             (executable ? "exec" : "noexec"),
+             (ro ? "ro" : "rw"));
+ 
+     std::vector<std::string> cmd;
+     cmd.push_back(kMountPath);
++#ifdef CONFIG_KERNEL_HAVE_EXFAT
++    cmd.push_back("-t");
++    cmd.push_back("exfat");
++#endif
+     cmd.push_back("-o");
+     cmd.push_back(mountData);
+     cmd.push_back(c_source);
+-- 
+2.7.4
+
+
+From e444357ebd9c5632e4b52a9217320745b5800be7 Mon Sep 17 00:00:00 2001
+From: Ketut Putu Kumajaya <ketut.kumajaya@gmail.com>
+Date: Sat, 5 Dec 2015 19:04:21 +0700
+Subject: [PATCH 02/12] vold: Fix native exfat driver support
+
+Change-Id: I772368c0ec054a2ba86cf0ba0e37f07ba2b82fd2
+---
+ Android.mk | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/Android.mk b/Android.mk
+index c16ed1b..51eadb7 100644
+--- a/Android.mk
++++ b/Android.mk
+@@ -70,6 +70,10 @@ common_static_libraries := \
+ vold_conlyflags := -std=c11
+ vold_cflags := -Werror -Wall -Wno-missing-field-initializers -Wno-unused-variable -Wno-unused-parameter
+ 
++ifeq ($(TARGET_KERNEL_HAVE_EXFAT),true)
++vold_cflags += -DCONFIG_KERNEL_HAVE_EXFAT
++endif
++
+ include $(CLEAR_VARS)
+ 
+ LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/Android.mk
+@@ -105,10 +109,6 @@ common_shared_libraries += libcryptfs_hw
+ LOCAL_CFLAGS += -DCONFIG_HW_DISK_ENCRYPTION
+ endif
+ 
+-ifeq ($(TARGET_KERNEL_HAVE_EXFAT),true)
+-LOCAL_CFLAGS += -DCONFIG_KERNEL_HAVE_EXFAT
+-endif
+-
+ LOCAL_SHARED_LIBRARIES := $(common_shared_libraries)
+ LOCAL_STATIC_LIBRARIES := $(common_static_libraries)
+ 
+-- 
+2.7.4
+
+
+From 2fbee3d0c6a0f5b648571b883da7133d4952680d Mon Sep 17 00:00:00 2001
+From: Michael Bestas <mikeioannina@gmail.com>
+Date: Sun, 6 Dec 2015 23:53:55 +0200
+Subject: [PATCH 03/12] vold: Fix fsck on public volumes
+
+* Fsck was hitting a neverallow on public volumes not formatted in vfat
+  because it was always using the trusted context
+* Always run trusted fsck for private volumes and untrusted for public
+* Exfat/ntfs are always untrusted, because they are not supported for
+  private volumes, like vfat
+
+Change-Id: I0a6ee9aea907bae9ed097b920df0559df7b45d7d
+---
+ PrivateVolume.cpp | 4 ++--
+ PublicVolume.cpp  | 4 ++--
+ fs/Exfat.cpp      | 3 ++-
+ fs/Ext4.cpp       | 5 ++---
+ fs/Ext4.h         | 2 +-
+ fs/F2fs.cpp       | 5 ++---
+ fs/F2fs.h         | 2 +-
+ fs/Ntfs.cpp       | 3 ++-
+ 8 files changed, 14 insertions(+), 14 deletions(-)
+
+diff --git a/PrivateVolume.cpp b/PrivateVolume.cpp
+index 6ddef3f..bdb4577 100644
+--- a/PrivateVolume.cpp
++++ b/PrivateVolume.cpp
+@@ -105,7 +105,7 @@ status_t PrivateVolume::doMount() {
+     }
+ 
+     if (mFsType == "ext4") {
+-        int res = ext4::Check(mDmDevPath, mPath);
++        int res = ext4::Check(mDmDevPath, mPath, true);
+         if (res == 0 || res == 1) {
+             LOG(DEBUG) << getId() << " passed filesystem check";
+         } else {
+@@ -119,7 +119,7 @@ status_t PrivateVolume::doMount() {
+         }
+ 
+     } else if (mFsType == "f2fs") {
+-        int res = f2fs::Check(mDmDevPath);
++        int res = f2fs::Check(mDmDevPath, true);
+         if (res == 0) {
+             LOG(DEBUG) << getId() << " passed filesystem check";
+         } else {
+diff --git a/PublicVolume.cpp b/PublicVolume.cpp
+index cd76483..b5b6c5c 100644
+--- a/PublicVolume.cpp
++++ b/PublicVolume.cpp
+@@ -137,9 +137,9 @@ status_t PublicVolume::doMount() {
+     if (mFsType == "exfat") {
+         ret = exfat::Check(mDevPath);
+     } else if (mFsType == "ext4") {
+-        ret = ext4::Check(mDevPath, mRawPath);
++        ret = ext4::Check(mDevPath, mRawPath, false);
+     } else if (mFsType == "f2fs") {
+-        ret = f2fs::Check(mDevPath);
++        ret = f2fs::Check(mDevPath, false);
+     } else if (mFsType == "ntfs") {
+         ret = ntfs::Check(mDevPath);
+     } else if (mFsType == "vfat") {
+diff --git a/fs/Exfat.cpp b/fs/Exfat.cpp
+index 7cfb019..5e34857 100644
+--- a/fs/Exfat.cpp
++++ b/fs/Exfat.cpp
+@@ -51,7 +51,8 @@ status_t Check(const std::string& source) {
+     cmd.push_back(kFsckPath);
+     cmd.push_back(source);
+ 
+-    return ForkExecvp(cmd, sFsckContext);
++    // Exfat devices are currently always untrusted
++    return ForkExecvp(cmd, sFsckUntrustedContext);
+ }
+ 
+ status_t Mount(const std::string& source, const std::string& target, bool ro,
+diff --git a/fs/Ext4.cpp b/fs/Ext4.cpp
+index 23b1d92..a1d6b44 100644
+--- a/fs/Ext4.cpp
++++ b/fs/Ext4.cpp
+@@ -64,7 +64,7 @@ bool IsSupported() {
+             && IsFilesystemSupported("ext4");
+ }
+ 
+-status_t Check(const std::string& source, const std::string& target) {
++status_t Check(const std::string& source, const std::string& target, bool trusted) {
+     // The following is shamelessly borrowed from fs_mgr.c, so it should be
+     // kept in sync with any changes over there.
+ 
+@@ -119,8 +119,7 @@ status_t Check(const std::string& source, const std::string& target) {
+         cmd.push_back("-y");
+         cmd.push_back(c_source);
+ 
+-        // ext4 devices are currently always trusted
+-        return ForkExecvp(cmd, sFsckContext);
++        return ForkExecvp(cmd, trusted ? sFsckContext : sFsckUntrustedContext);
+     }
+ 
+     return 0;
+diff --git a/fs/Ext4.h b/fs/Ext4.h
+index 53e3c28..6fb2d5b 100644
+--- a/fs/Ext4.h
++++ b/fs/Ext4.h
+@@ -27,7 +27,7 @@ namespace ext4 {
+ 
+ bool IsSupported();
+ 
+-status_t Check(const std::string& source, const std::string& target);
++status_t Check(const std::string& source, const std::string& target, bool trusted);
+ status_t Mount(const std::string& source, const std::string& target, bool ro,
+         bool remount, bool executable, const std::string& opts = "");
+ status_t Format(const std::string& source, unsigned int numSectors,
+diff --git a/fs/F2fs.cpp b/fs/F2fs.cpp
+index b947822..9de4bca 100644
+--- a/fs/F2fs.cpp
++++ b/fs/F2fs.cpp
+@@ -40,14 +40,13 @@ bool IsSupported() {
+             && IsFilesystemSupported("f2fs");
+ }
+ 
+-status_t Check(const std::string& source) {
++status_t Check(const std::string& source, bool trusted) {
+     std::vector<std::string> cmd;
+     cmd.push_back(kFsckPath);
+     cmd.push_back("-f");
+     cmd.push_back(source);
+ 
+-    // f2fs devices are currently always trusted
+-    return ForkExecvp(cmd, sFsckContext);
++    return ForkExecvp(cmd, trusted ? sFsckContext : sFsckUntrustedContext);
+ }
+ 
+ status_t Mount(const std::string& source, const std::string& target) {
+diff --git a/fs/F2fs.h b/fs/F2fs.h
+index f710212..eb34afa 100644
+--- a/fs/F2fs.h
++++ b/fs/F2fs.h
+@@ -27,7 +27,7 @@ namespace f2fs {
+ 
+ bool IsSupported();
+ 
+-status_t Check(const std::string& source);
++status_t Check(const std::string& source, bool trusted);
+ status_t Mount(const std::string& source, const std::string& target);
+ status_t Format(const std::string& source);
+ 
+diff --git a/fs/Ntfs.cpp b/fs/Ntfs.cpp
+index 56070a3..a6663f8 100644
+--- a/fs/Ntfs.cpp
++++ b/fs/Ntfs.cpp
+@@ -48,7 +48,8 @@ status_t Check(const std::string& source) {
+     cmd.push_back("-n");
+     cmd.push_back(source);
+ 
+-    return ForkExecvp(cmd, sFsckContext);
++    // Ntfs devices are currently always untrusted
++    return ForkExecvp(cmd, sFsckUntrustedContext);
+ }
+ 
+ status_t Mount(const std::string& source, const std::string& target, bool ro,
+-- 
+2.7.4
+
+
+From 8479c52940bc6bd5ac913f7e29a396b6a5b1389b Mon Sep 17 00:00:00 2001
+From: dhacker29 <dhackerdvm@gmail.com>
+Date: Sun, 6 Dec 2015 05:32:30 -0500
+Subject: [PATCH 04/12] vold: Native NTFS kernel driver support
+
+Change-Id: I825b2840a03e5cdab9b68f13fd5170acbbcec2e5
+---
+ Android.mk  |  4 ++++
+ fs/Ntfs.cpp | 12 ++++++++++++
+ 2 files changed, 16 insertions(+)
+
+diff --git a/Android.mk b/Android.mk
+index 51eadb7..2c0aebc 100644
+--- a/Android.mk
++++ b/Android.mk
+@@ -74,6 +74,10 @@ ifeq ($(TARGET_KERNEL_HAVE_EXFAT),true)
+ vold_cflags += -DCONFIG_KERNEL_HAVE_EXFAT
+ endif
+ 
++ifeq ($(TARGET_KERNEL_HAVE_NTFS),true)
++vold_cflags += -DCONFIG_KERNEL_HAVE_NTFS
++endif
++
+ include $(CLEAR_VARS)
+ 
+ LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/Android.mk
+diff --git a/fs/Ntfs.cpp b/fs/Ntfs.cpp
+index a6663f8..55c17e5 100644
+--- a/fs/Ntfs.cpp
++++ b/fs/Ntfs.cpp
+@@ -33,7 +33,11 @@ namespace ntfs {
+ 
+ static const char* kMkfsPath = "/system/bin/mkfs.ntfs";
+ static const char* kFsckPath = "/system/bin/fsck.ntfs";
++#ifdef CONFIG_KERNEL_HAVE_NTFS
++static const char* kMountPath = "/system/bin/mount";
++#else
+ static const char* kMountPath = "/system/bin/mount.ntfs";
++#endif
+ 
+ bool IsSupported() {
+     return access(kMkfsPath, X_OK) == 0
+@@ -61,8 +65,12 @@ status_t Mount(const std::string& source, const std::string& target, bool ro,
+     const char* c_target = target.c_str();
+ 
+     sprintf(mountData,
++#ifdef CONFIG_KERNEL_HAVE_NTFS
++            "utf8,uid=%d,gid=%d,fmask=%o,dmask=%o,nodev,nosuid",
++#else
+             "utf8,uid=%d,gid=%d,fmask=%o,dmask=%o,"
+             "shortname=mixed,nodev,nosuid,dirsync",
++#endif
+             ownerUid, ownerGid, permMask, permMask);
+ 
+     if (!executable)
+@@ -74,6 +82,10 @@ status_t Mount(const std::string& source, const std::string& target, bool ro,
+ 
+     std::vector<std::string> cmd;
+     cmd.push_back(kMountPath);
++#ifdef CONFIG_KERNEL_HAVE_NTFS
++    cmd.push_back("-t");
++    cmd.push_back("ntfs");
++#endif
+     cmd.push_back("-o");
+     cmd.push_back(mountData);
+     cmd.push_back(c_source);
+-- 
+2.7.4
+
+
+From 6fef51180db64cdf07c3004824b40fec12ce152a Mon Sep 17 00:00:00 2001
+From: morckx <morckx@gmail.com>
+Date: Tue, 24 Nov 2015 22:45:01 +0100
+Subject: [PATCH 05/12] vold: dont't use commas in device names
+
+Fuse supports commas escaped by '\' in fs names, but exfat and ntfs-3g
+currently don't support the escaping.
+
+This fixes mounting of exFAT and NTFS public volumes.
+
+Change-Id: I72005489956e59e7f889267114fee3921d289984
+---
+ Disk.cpp          | 2 +-
+ PrivateVolume.cpp | 2 +-
+ PublicVolume.cpp  | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/Disk.cpp b/Disk.cpp
+index 482cf8f..057637f 100644
+--- a/Disk.cpp
++++ b/Disk.cpp
+@@ -80,7 +80,7 @@ Disk::Disk(const std::string& eventPath, dev_t device,
+         const std::string& nickname, int flags) :
+         mDevice(device), mSize(-1), mNickname(nickname), mFlags(flags), mCreated(
+                 false), mJustPartitioned(false) {
+-    mId = StringPrintf("disk:%u,%u", major(device), minor(device));
++    mId = StringPrintf("disk:%u_%u", major(device), minor(device));
+     mEventPath = eventPath;
+     mSysPath = StringPrintf("/sys/%s", eventPath.c_str());
+     mDevPath = StringPrintf("/dev/block/vold/%s", mId.c_str());
+diff --git a/PrivateVolume.cpp b/PrivateVolume.cpp
+index bdb4577..b5ff1dd 100644
+--- a/PrivateVolume.cpp
++++ b/PrivateVolume.cpp
+@@ -45,7 +45,7 @@ static const unsigned int kMajorBlockMmc = 179;
+ 
+ PrivateVolume::PrivateVolume(dev_t device, const std::string& keyRaw) :
+         VolumeBase(Type::kPrivate), mRawDevice(device), mKeyRaw(keyRaw) {
+-    setId(StringPrintf("private:%u,%u", major(device), minor(device)));
++    setId(StringPrintf("private:%u_%u", major(device), minor(device)));
+     mRawDevPath = StringPrintf("/dev/block/vold/%s", getId().c_str());
+ }
+ 
+diff --git a/PublicVolume.cpp b/PublicVolume.cpp
+index b5b6c5c..9761abe 100644
+--- a/PublicVolume.cpp
++++ b/PublicVolume.cpp
+@@ -50,7 +50,7 @@ PublicVolume::PublicVolume(dev_t device,
+                 const std::string& mntopts /* = "" */) :
+         VolumeBase(Type::kPublic), mDevice(device), mFusePid(0),
+         mFsType(fstype), mMntOpts(mntopts) {
+-    setId(StringPrintf("public:%u,%u", major(device), minor(device)));
++    setId(StringPrintf("public:%u_%u", major(device), minor(device)));
+     mDevPath = StringPrintf("/dev/block/vold/%s", getId().c_str());
+ }
+ 
+-- 
+2.7.4
+
+
+From c39e71d479d35dbd0acd2db25be63bbdc39eeb30 Mon Sep 17 00:00:00 2001
+From: Sam Mortimer <sam@mortimer.me.uk>
+Date: Fri, 18 Dec 2015 05:17:13 -0800
+Subject: [PATCH 06/12] Also change emulated device id separator from comma to
+ underscore
+
+Needed to fix emulated primary storage on adopted storage.
+
+Change-Id: I22114698e480fc829090261b79824c8b65b009c3
+---
+ EmulatedVolume.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/EmulatedVolume.cpp b/EmulatedVolume.cpp
+index 80ef3e2..803d735 100644
+--- a/EmulatedVolume.cpp
++++ b/EmulatedVolume.cpp
+@@ -45,7 +45,7 @@ EmulatedVolume::EmulatedVolume(const std::string& rawPath) :
+ 
+ EmulatedVolume::EmulatedVolume(const std::string& rawPath, dev_t device,
+         const std::string& fsUuid) : VolumeBase(Type::kEmulated), mFusePid(0) {
+-    setId(StringPrintf("emulated:%u,%u", major(device), minor(device)));
++    setId(StringPrintf("emulated:%u_%u", major(device), minor(device)));
+     mRawPath = rawPath;
+     mLabel = fsUuid;
+ }
+-- 
+2.7.4
+
+
+From 6bc85288888596134b7f8672c17312a729f3e962 Mon Sep 17 00:00:00 2001
+From: Sam Mortimer <sam@mortimer.me.uk>
+Date: Fri, 27 Nov 2015 15:27:03 -0800
+Subject: [PATCH 07/12] vold ext4/f2fs: do not use dirsync if we're mounting
+ adopted storage
+
+Change-Id: I6f8ca75385c2d4080b1430c0b6545b61e6632e2c
+---
+ PrivateVolume.cpp |  4 ++--
+ PublicVolume.cpp  |  5 +++--
+ fs/Ext4.cpp       | 10 ++++++++--
+ fs/Ext4.h         |  6 ++++--
+ fs/F2fs.cpp       | 10 ++++++++--
+ fs/F2fs.h         |  3 ++-
+ 6 files changed, 27 insertions(+), 11 deletions(-)
+
+diff --git a/PrivateVolume.cpp b/PrivateVolume.cpp
+index b5ff1dd..aeae48e 100644
+--- a/PrivateVolume.cpp
++++ b/PrivateVolume.cpp
+@@ -113,7 +113,7 @@ status_t PrivateVolume::doMount() {
+             return -EIO;
+         }
+ 
+-        if (ext4::Mount(mDmDevPath, mPath, false, false, true)) {
++        if (ext4::Mount(mDmDevPath, mPath, false, false, true, NULL, true)) {
+             PLOG(ERROR) << getId() << " failed to mount";
+             return -EIO;
+         }
+@@ -127,7 +127,7 @@ status_t PrivateVolume::doMount() {
+             return -EIO;
+         }
+ 
+-        if (f2fs::Mount(mDmDevPath, mPath)) {
++        if (f2fs::Mount(mDmDevPath, mPath, true)) {
+             PLOG(ERROR) << getId() << " failed to mount";
+             return -EIO;
+         }
+diff --git a/PublicVolume.cpp b/PublicVolume.cpp
+index 9761abe..fd9f5eb 100644
+--- a/PublicVolume.cpp
++++ b/PublicVolume.cpp
+@@ -156,9 +156,10 @@ status_t PublicVolume::doMount() {
+         ret = exfat::Mount(mDevPath, mRawPath, false, false, false,
+                 AID_MEDIA_RW, AID_MEDIA_RW, 0007);
+     } else if (mFsType == "ext4") {
+-        ret = ext4::Mount(mDevPath, mRawPath, false, false, true, mMntOpts);
++        ret = ext4::Mount(mDevPath, mRawPath, false, false, true, mMntOpts,
++                false);
+     } else if (mFsType == "f2fs") {
+-        ret = f2fs::Mount(mDevPath, mRawPath);
++        ret = f2fs::Mount(mDevPath, mRawPath, false);
+     } else if (mFsType == "ntfs") {
+         ret = ntfs::Mount(mDevPath, mRawPath, false, false, false,
+                 AID_MEDIA_RW, AID_MEDIA_RW, 0007, true);
+diff --git a/fs/Ext4.cpp b/fs/Ext4.cpp
+index a1d6b44..551467e 100644
+--- a/fs/Ext4.cpp
++++ b/fs/Ext4.cpp
+@@ -126,7 +126,8 @@ status_t Check(const std::string& source, const std::string& target, bool truste
+ }
+ 
+ status_t Mount(const std::string& source, const std::string& target, bool ro,
+-        bool remount, bool executable, const std::string& opts /* = "" */) {
++        bool remount, bool executable, const std::string& opts /* = "" */,
++        bool trusted) {
+     int rc;
+     unsigned long flags;
+ 
+@@ -134,7 +135,12 @@ status_t Mount(const std::string& source, const std::string& target, bool ro,
+     const char* c_target = target.c_str();
+     const char* c_opts = opts.c_str();
+ 
+-    flags = MS_NOATIME | MS_NODEV | MS_NOSUID | MS_DIRSYNC;
++    flags = MS_NOATIME | MS_NODEV | MS_NOSUID;
++
++    // Only use MS_DIRSYNC if we're not mounting adopted storage
++    if (!trusted) {
++        flags |= MS_DIRSYNC;
++    }
+ 
+     flags |= (executable ? 0 : MS_NOEXEC);
+     flags |= (ro ? MS_RDONLY : 0);
+diff --git a/fs/Ext4.h b/fs/Ext4.h
+index 6fb2d5b..e0db275 100644
+--- a/fs/Ext4.h
++++ b/fs/Ext4.h
+@@ -27,9 +27,11 @@ namespace ext4 {
+ 
+ bool IsSupported();
+ 
+-status_t Check(const std::string& source, const std::string& target, bool trusted);
++status_t Check(const std::string& source, const std::string& target,
++        bool trusted);
+ status_t Mount(const std::string& source, const std::string& target, bool ro,
+-        bool remount, bool executable, const std::string& opts = "");
++        bool remount, bool executable, const std::string& opts = "",
++        bool trusted = false);
+ status_t Format(const std::string& source, unsigned int numSectors,
+         const std::string& target);
+ status_t Resize(const std::string& source, unsigned int numSectors);
+diff --git a/fs/F2fs.cpp b/fs/F2fs.cpp
+index 9de4bca..9b9ddae 100644
+--- a/fs/F2fs.cpp
++++ b/fs/F2fs.cpp
+@@ -49,10 +49,16 @@ status_t Check(const std::string& source, bool trusted) {
+     return ForkExecvp(cmd, trusted ? sFsckContext : sFsckUntrustedContext);
+ }
+ 
+-status_t Mount(const std::string& source, const std::string& target) {
++status_t Mount(const std::string& source, const std::string& target,
++        bool trusted) {
+     const char* c_source = source.c_str();
+     const char* c_target = target.c_str();
+-    unsigned long flags = MS_NOATIME | MS_NODEV | MS_NOSUID | MS_DIRSYNC;
++    unsigned long flags = MS_NOATIME | MS_NODEV | MS_NOSUID;
++
++    // Only use MS_DIRSYNC if we're not mounting adopted storage
++    if (!trusted) {
++        flags |= MS_DIRSYNC;
++    }
+ 
+     int res = mount(c_source, c_target, "f2fs", flags, NULL);
+     if (res != 0) {
+diff --git a/fs/F2fs.h b/fs/F2fs.h
+index eb34afa..0950552 100644
+--- a/fs/F2fs.h
++++ b/fs/F2fs.h
+@@ -28,7 +28,8 @@ namespace f2fs {
+ bool IsSupported();
+ 
+ status_t Check(const std::string& source, bool trusted);
+-status_t Mount(const std::string& source, const std::string& target);
++status_t Mount(const std::string& source, const std::string& target,
++        bool trusted);
+ status_t Format(const std::string& source);
+ 
+ }  // namespace f2fs
+-- 
+2.7.4
+
+
+From 9cc1f90b4e6395ac958d0d95cb09075d8ca3245e Mon Sep 17 00:00:00 2001
+From: Sam Mortimer <sam@mortimer.me.uk>
+Date: Mon, 18 Jan 2016 09:58:58 -0800
+Subject: [PATCH 08/12] Fix mounting ext4 adopted storage
+
+Change-Id: I36cb858b96968a949632017874addb278679b3a4
+---
+ PrivateVolume.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/PrivateVolume.cpp b/PrivateVolume.cpp
+index aeae48e..f6cf35b 100644
+--- a/PrivateVolume.cpp
++++ b/PrivateVolume.cpp
+@@ -113,7 +113,7 @@ status_t PrivateVolume::doMount() {
+             return -EIO;
+         }
+ 
+-        if (ext4::Mount(mDmDevPath, mPath, false, false, true, NULL, true)) {
++        if (ext4::Mount(mDmDevPath, mPath, false, false, true, "", true)) {
+             PLOG(ERROR) << getId() << " failed to mount";
+             return -EIO;
+         }
+-- 
+2.7.4
+
+
+From ec41cf0ec191dc652821a1c494c3b15fcd8e3e13 Mon Sep 17 00:00:00 2001
+From: Michael Bestas <mikeioannina@cyanogenmod.org>
+Date: Wed, 20 Jan 2016 22:06:11 +0200
+Subject: [PATCH 09/12] vold: Honor mount options for f2fs partitions
+
+* Based on 1436fc7ea3b349283a021e75fdd4f3478a2ca2e8
+
+Change-Id: Id9491ada3bd34275a95ef9855167db6ae7a9b30f
+---
+ PrivateVolume.cpp | 2 +-
+ PublicVolume.cpp  | 2 +-
+ fs/F2fs.cpp       | 5 +++--
+ fs/F2fs.h         | 2 +-
+ 4 files changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/PrivateVolume.cpp b/PrivateVolume.cpp
+index f6cf35b..eb23f39 100644
+--- a/PrivateVolume.cpp
++++ b/PrivateVolume.cpp
+@@ -127,7 +127,7 @@ status_t PrivateVolume::doMount() {
+             return -EIO;
+         }
+ 
+-        if (f2fs::Mount(mDmDevPath, mPath, true)) {
++        if (f2fs::Mount(mDmDevPath, mPath, "", true)) {
+             PLOG(ERROR) << getId() << " failed to mount";
+             return -EIO;
+         }
+diff --git a/PublicVolume.cpp b/PublicVolume.cpp
+index fd9f5eb..7db8061 100644
+--- a/PublicVolume.cpp
++++ b/PublicVolume.cpp
+@@ -159,7 +159,7 @@ status_t PublicVolume::doMount() {
+         ret = ext4::Mount(mDevPath, mRawPath, false, false, true, mMntOpts,
+                 false);
+     } else if (mFsType == "f2fs") {
+-        ret = f2fs::Mount(mDevPath, mRawPath, false);
++        ret = f2fs::Mount(mDevPath, mRawPath, mMntOpts, false);
+     } else if (mFsType == "ntfs") {
+         ret = ntfs::Mount(mDevPath, mRawPath, false, false, false,
+                 AID_MEDIA_RW, AID_MEDIA_RW, 0007, true);
+diff --git a/fs/F2fs.cpp b/fs/F2fs.cpp
+index 9b9ddae..a4bb76b 100644
+--- a/fs/F2fs.cpp
++++ b/fs/F2fs.cpp
+@@ -50,9 +50,10 @@ status_t Check(const std::string& source, bool trusted) {
+ }
+ 
+ status_t Mount(const std::string& source, const std::string& target,
+-        bool trusted) {
++        const std::string& opts /* = "" */, bool trusted) {
+     const char* c_source = source.c_str();
+     const char* c_target = target.c_str();
++    const char* c_opts = opts.c_str();
+     unsigned long flags = MS_NOATIME | MS_NODEV | MS_NOSUID;
+ 
+     // Only use MS_DIRSYNC if we're not mounting adopted storage
+@@ -60,7 +61,7 @@ status_t Mount(const std::string& source, const std::string& target,
+         flags |= MS_DIRSYNC;
+     }
+ 
+-    int res = mount(c_source, c_target, "f2fs", flags, NULL);
++    int res = mount(c_source, c_target, "f2fs", flags, c_opts);
+     if (res != 0) {
+         PLOG(ERROR) << "Failed to mount " << source;
+         if (errno == EROFS) {
+diff --git a/fs/F2fs.h b/fs/F2fs.h
+index 0950552..e035a71 100644
+--- a/fs/F2fs.h
++++ b/fs/F2fs.h
+@@ -29,7 +29,7 @@ bool IsSupported();
+ 
+ status_t Check(const std::string& source, bool trusted);
+ status_t Mount(const std::string& source, const std::string& target,
+-        bool trusted);
++        const std::string& opts = "", bool trusted = false);
+ status_t Format(const std::string& source);
+ 
+ }  // namespace f2fs
+-- 
+2.7.4
+
+
+From c29e15e037815cd13d059ab2c71b6146e7def6c7 Mon Sep 17 00:00:00 2001
+From: Jani Lusikka <jani.lusikka@gmail.com>
+Date: Fri, 15 Jan 2016 22:25:47 +0200
+Subject: [PATCH 10/12] vold: Mount ext4/f2fs portable storage with
+ sdcard_posix context
+
+This commit is a forward port of following commits:
+
+Author: Michael Stucki <mundaun@gmx.ch>
+Change-Id: Ia34ad91444951e62f6d17374f480dcbdfa34cca3
+
+Author: Tom Marshall <tdm@cyngn.com>
+Change-Id: I05d9b57cc28ffd1f8deb8148d81c7f6fad0aa8db
+
+Author: Pawit Pornkitprasan <p.pawit@gmail.com>
+Change-Id: I1364f37018b25d79b1826c85849def64e868d72f
+
+Author: Pawit Pornkitprasan <p.pawit@gmail.com>
+Change-Id: I873af4dc2309d3d0942ce466b8acf8158abb85ae
+
+Author: Jorge Ruesga <jorge@ruesga.com>
+Change-Id: Ic0bb314b30e42489c45caec29d35d6896c9849eb
+
+Signed-off-by: Michael Bestas <mikeioannina@cyanogenmod.org>
+Change-Id: I9699643987c53d8e2538720f33da28de35230dfe
+---
+ PublicVolume.cpp |  4 ++--
+ fs/Ext4.cpp      | 23 +++++++++++++++++++----
+ fs/Ext4.h        |  2 +-
+ fs/F2fs.cpp      | 26 ++++++++++++++++++++++----
+ fs/F2fs.h        |  3 ++-
+ 5 files changed, 46 insertions(+), 12 deletions(-)
+
+diff --git a/PublicVolume.cpp b/PublicVolume.cpp
+index 7db8061..d602eca 100644
+--- a/PublicVolume.cpp
++++ b/PublicVolume.cpp
+@@ -157,9 +157,9 @@ status_t PublicVolume::doMount() {
+                 AID_MEDIA_RW, AID_MEDIA_RW, 0007);
+     } else if (mFsType == "ext4") {
+         ret = ext4::Mount(mDevPath, mRawPath, false, false, true, mMntOpts,
+-                false);
++                false, true);
+     } else if (mFsType == "f2fs") {
+-        ret = f2fs::Mount(mDevPath, mRawPath, mMntOpts, false);
++        ret = f2fs::Mount(mDevPath, mRawPath, mMntOpts, false, true);
+     } else if (mFsType == "ntfs") {
+         ret = ntfs::Mount(mDevPath, mRawPath, false, false, false,
+                 AID_MEDIA_RW, AID_MEDIA_RW, 0007, true);
+diff --git a/fs/Ext4.cpp b/fs/Ext4.cpp
+index 551467e..f8c7f76 100644
+--- a/fs/Ext4.cpp
++++ b/fs/Ext4.cpp
+@@ -42,6 +42,7 @@
+ #include <cutils/log.h>
+ #include <cutils/properties.h>
+ #include <logwrap/logwrap.h>
++#include <private/android_filesystem_config.h>
+ #include <selinux/selinux.h>
+ 
+ #include "Ext4.h"
+@@ -127,13 +128,22 @@ status_t Check(const std::string& source, const std::string& target, bool truste
+ 
+ status_t Mount(const std::string& source, const std::string& target, bool ro,
+         bool remount, bool executable, const std::string& opts /* = "" */,
+-        bool trusted) {
++        bool trusted, bool portable) {
+     int rc;
+     unsigned long flags;
+ 
++    std::string data(opts);
++
++    if (portable) {
++        if (!data.empty()) {
++            data += ",";
++        }
++        data += "context=u:object_r:sdcard_posix:s0";
++    }
++
+     const char* c_source = source.c_str();
+     const char* c_target = target.c_str();
+-    const char* c_opts = opts.c_str();
++    const char* c_data = data.c_str();
+ 
+     flags = MS_NOATIME | MS_NODEV | MS_NOSUID;
+ 
+@@ -146,12 +156,17 @@ status_t Mount(const std::string& source, const std::string& target, bool ro,
+     flags |= (ro ? MS_RDONLY : 0);
+     flags |= (remount ? MS_REMOUNT : 0);
+ 
+-    rc = mount(c_source, c_target, "ext4", flags, c_opts);
++    rc = mount(c_source, c_target, "ext4", flags, c_data);
++
++    if (portable && rc == 0) {
++        chown(c_target, AID_MEDIA_RW, AID_MEDIA_RW);
++        chmod(c_target, 0755);
++    }
+ 
+     if (rc && errno == EROFS) {
+         SLOGE("%s appears to be a read only filesystem - retrying mount RO", c_source);
+         flags |= MS_RDONLY;
+-        rc = mount(c_source, c_target, "ext4", flags, NULL);
++        rc = mount(c_source, c_target, "ext4", flags, c_data);
+     }
+ 
+     return rc;
+diff --git a/fs/Ext4.h b/fs/Ext4.h
+index e0db275..3ecdf1c 100644
+--- a/fs/Ext4.h
++++ b/fs/Ext4.h
+@@ -31,7 +31,7 @@ status_t Check(const std::string& source, const std::string& target,
+         bool trusted);
+ status_t Mount(const std::string& source, const std::string& target, bool ro,
+         bool remount, bool executable, const std::string& opts = "",
+-        bool trusted = false);
++        bool trusted = false, bool portable = false);
+ status_t Format(const std::string& source, unsigned int numSectors,
+         const std::string& target);
+ status_t Resize(const std::string& source, unsigned int numSectors);
+diff --git a/fs/F2fs.cpp b/fs/F2fs.cpp
+index a4bb76b..b4f91ed 100644
+--- a/fs/F2fs.cpp
++++ b/fs/F2fs.cpp
+@@ -19,11 +19,13 @@
+ 
+ #include <base/logging.h>
+ #include <base/stringprintf.h>
++#include <private/android_filesystem_config.h>
+ 
+ #include <vector>
+ #include <string>
+ 
+ #include <sys/mount.h>
++#include <sys/stat.h>
+ 
+ using android::base::StringPrintf;
+ 
+@@ -50,10 +52,20 @@ status_t Check(const std::string& source, bool trusted) {
+ }
+ 
+ status_t Mount(const std::string& source, const std::string& target,
+-        const std::string& opts /* = "" */, bool trusted) {
++        const std::string& opts /* = "" */, bool trusted, bool portable) {
++    std::string data(opts);
++
++    if (portable) {
++        if (!data.empty()) {
++            data += ",";
++        }
++        data += "context=u:object_r:sdcard_posix:s0";
++    }
++
+     const char* c_source = source.c_str();
+     const char* c_target = target.c_str();
+-    const char* c_opts = opts.c_str();
++    const char* c_data = data.c_str();
++
+     unsigned long flags = MS_NOATIME | MS_NODEV | MS_NOSUID;
+ 
+     // Only use MS_DIRSYNC if we're not mounting adopted storage
+@@ -61,11 +73,17 @@ status_t Mount(const std::string& source, const std::string& target,
+         flags |= MS_DIRSYNC;
+     }
+ 
+-    int res = mount(c_source, c_target, "f2fs", flags, c_opts);
++    int res = mount(c_source, c_target, "f2fs", flags, c_data);
++
++    if (portable && res == 0) {
++        chown(c_target, AID_MEDIA_RW, AID_MEDIA_RW);
++        chmod(c_target, 0755);
++    }
++
+     if (res != 0) {
+         PLOG(ERROR) << "Failed to mount " << source;
+         if (errno == EROFS) {
+-            res = mount(c_source, c_target, "f2fs", flags | MS_RDONLY, NULL);
++            res = mount(c_source, c_target, "f2fs", flags | MS_RDONLY, c_data);
+             if (res != 0) {
+                 PLOG(ERROR) << "Failed to mount read-only " << source;
+             }
+diff --git a/fs/F2fs.h b/fs/F2fs.h
+index e035a71..ecfc0c7 100644
+--- a/fs/F2fs.h
++++ b/fs/F2fs.h
+@@ -29,7 +29,8 @@ bool IsSupported();
+ 
+ status_t Check(const std::string& source, bool trusted);
+ status_t Mount(const std::string& source, const std::string& target,
+-        const std::string& opts = "", bool trusted = false);
++        const std::string& opts = "", bool trusted = false,
++        bool portable = false);
+ status_t Format(const std::string& source);
+ 
+ }  // namespace f2fs
+-- 
+2.7.4
+
+
+From 2da56fb5fa89c12507edbe4c15b354ac9b4f7594 Mon Sep 17 00:00:00 2001
+From: caozhiyuan <cao.zhiyuan@zte.com.cn>
+Date: Thu, 29 Oct 2015 16:39:00 +0800
+Subject: [PATCH 11/12] Fix ioctl parameter
+
+Change-Id: I922c8ae77056db81bc5152346299a07a34c527d2
+---
+ Utils.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Utils.cpp b/Utils.cpp
+index 69b65a4..050dd19 100644
+--- a/Utils.cpp
++++ b/Utils.cpp
+@@ -534,7 +534,7 @@ status_t WipeBlockDevice(const std::string& path) {
+         goto done;
+     }
+ 
+-    if ((ioctl(fd, BLKGETSIZE, nr_sec)) == -1) {
++    if ((ioctl(fd, BLKGETSIZE, &nr_sec)) == -1) {
+         PLOG(ERROR) << "Failed to determine size of " << path;
+         goto done;
+     }
+-- 
+2.7.4
+
+
+From 27d49b2675bca4a88905b64047bd91bc0f356a97 Mon Sep 17 00:00:00 2001
+From: Alexander Martinz <eviscerationls@gmail.com>
+Date: Tue, 10 Nov 2015 17:03:58 +0100
+Subject: [PATCH 12/12] fs: f2fs: only check for corruption and not entire
+ partition
+
+  * checking the entire partition is unneccessary and causes boot delays
+    as well as system lockups if using a F2FS partitioned sdcard
+
+Change-Id: I735637308059877a24d7d8b3b9bf79fc2a51e39b
+Signed-off-by: Alexander Martinz <eviscerationls@gmail.com>
+---
+ fs/F2fs.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/fs/F2fs.cpp b/fs/F2fs.cpp
+index b4f91ed..7047ae2 100644
+--- a/fs/F2fs.cpp
++++ b/fs/F2fs.cpp
+@@ -45,7 +45,7 @@ bool IsSupported() {
+ status_t Check(const std::string& source, bool trusted) {
+     std::vector<std::string> cmd;
+     cmd.push_back(kFsckPath);
+-    cmd.push_back("-f");
++    cmd.push_back("-a");
+     cmd.push_back(source);
+ 
+     return ForkExecvp(cmd, trusted ? sFsckContext : sFsckUntrustedContext);
+-- 
+2.7.4
+

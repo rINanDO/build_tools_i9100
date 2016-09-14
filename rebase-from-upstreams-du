@@ -1,0 +1,52 @@
+#Dominggoes Isakh 20160909
+cd ..
+
+COUNT=0
+CURRENT_DIR="$PWD"
+SOURCENAME="github" 
+UPSTREAMNAME="upstream" 
+
+PROJECTS=(
+'vendor/du				https://www.github.com/dirtyunicorns/android_vendor_du				m' 
+'build					https://www.github.com/dirtyunicorns/android_build				m-caf' 
+'frameworks/av				https://www.github.com/dirtyunicorns/android_frameworks_av			m-caf'
+'frameworks/base			https://www.github.com/dirtyunicorns/android_frameworks_base			m'
+'frameworks/native			https://www.github.com/dirtyunicorns/android_frameworks_native			m-caf'
+'frameworks/opt/telephony		https://www.github.com/dirtyunicorns/android_frameworks_opt_telephony		m'
+'packages/services/Telephony		https://www.github.com/dirtyunicorns/android_packages_services_Telephony	m'
+'system/media				https://www.github.com/dirtyunicorns/android_system_media			m-caf'
+'system/vold				https://www.github.com/dirtyunicorns/android_system_vold			m-caf'
+)
+
+while [ "x${PROJECTS[COUNT]}" != "x" ]
+do
+	echo ========================================
+	cd $CURRENT_DIR
+	CURRENT="${PROJECTS[COUNT]}"
+	FOLDER=`echo "$CURRENT" | awk '{print $1}'`
+	GITURL=`echo "$CURRENT" | awk '{print $2}'`
+	GITBRANCH=`echo "$CURRENT" | awk '{print $3}'`
+
+	cd "$FOLDER"
+	echo Entering "$FOLDER" ...
+
+	REMOTES="$(git remote -v)" 
+	CURRENTUPSTREAMURL=`echo "${REMOTES}"|grep fetch|grep $UPSTREAMNAME|awk '{print $2}'`
+	if [ "$CURRENTUPSTREAMURL" == "$GITURL" ]; then
+		echo $UPSTREAMNAME already installed
+	else
+		git remote add "$UPSTREAMNAME" "$GITURL"
+	fi
+	git fetch    $UPSTREAMNAME
+	git checkout $SOURCENAME/$GITBRANCH
+	git rebase   $UPSTREAMNAME/$GITBRANCH
+
+	read -p "Continue with the next project?" yn
+	case $yn in
+		[Nn]* ) return;;
+		* ) echo "Please answer yes or no.";;
+	esac
+	COUNT=$(($COUNT + 1))
+done
+
+cd $CURRENT_DIR

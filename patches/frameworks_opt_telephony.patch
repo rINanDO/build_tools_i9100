@@ -1,0 +1,226 @@
+From a4a2adf3a4ddcc682616c50e878b4457b4b63099 Mon Sep 17 00:00:00 2001
+From: Preeti Ahuja <preetia@codeaurora.org>
+Date: Thu, 21 Aug 2014 16:33:00 -0700
+Subject: [PATCH] SEEK: Add support for getAtr api
+
+Implement getAtr for SEEK on Android.
+
+CRs-Fixed: 718469
+Change-Id: I22f8661bbe65e6d2449a7e2f56a0f9c42cf7d164
+---
+ .../com/android/internal/telephony/BaseCommands.java   | 17 +++++++++++++++++
+ .../android/internal/telephony/CommandException.java   |  3 +++
+ .../android/internal/telephony/CommandsInterface.java  |  7 +++++++
+ src/java/com/android/internal/telephony/RIL.java       | 16 ++++++++++++++++
+ .../telephony/imsphone/ImsPhoneCommandInterface.java   | 14 --------------
+ .../internal/telephony/sip/SipCommandInterface.java    | 18 ------------------
+ .../internal/telephony/test/SimulatedCommands.java     |  5 +++++
+ .../com/android/internal/telephony/uicc/UiccCard.java  |  9 +++++++++
+ 8 files changed, 57 insertions(+), 32 deletions(-)
+
+diff --git a/src/java/com/android/internal/telephony/BaseCommands.java b/src/java/com/android/internal/telephony/BaseCommands.java
+index 5c77cc1..3d6ad83 100644
+--- a/src/java/com/android/internal/telephony/BaseCommands.java
++++ b/src/java/com/android/internal/telephony/BaseCommands.java
+@@ -909,4 +909,21 @@ public abstract class BaseCommands implements CommandsInterface {
+           mLceInfoRegistrant = null;
+       }
+     }
++
++    @Override
++    public void iccOpenLogicalChannel(String AID, Message response) {}
++
++    @Override
++    public void iccCloseLogicalChannel(int channel, Message response) {}
++
++    @Override
++    public void iccTransmitApduLogicalChannel(int channel, int cla, int instruction,
++                                              int p1, int p2, int p3, String data,
++                                              Message response) {}
++    @Override
++    public void iccTransmitApduBasicChannel(int cla, int instruction, int p1, int p2,
++                                            int p3, String data, Message response) {}
++
++    @Override
++    public void getAtr(Message response) {}
+ }
+diff --git a/src/java/com/android/internal/telephony/CommandException.java b/src/java/com/android/internal/telephony/CommandException.java
+index 6a239f8..f8f7c33 100644
+--- a/src/java/com/android/internal/telephony/CommandException.java
++++ b/src/java/com/android/internal/telephony/CommandException.java
+@@ -44,6 +44,7 @@ public class CommandException extends RuntimeException {
+         ILLEGAL_SIM_OR_ME,
+         MISSING_RESOURCE,
+         NO_SUCH_ELEMENT,
++        INVALID_PARAMETER,
+         SUBSCRIPTION_NOT_SUPPORTED,
+         DIAL_MODIFIED_TO_USSD,
+         DIAL_MODIFIED_TO_SS,
+@@ -104,6 +105,8 @@ public class CommandException extends RuntimeException {
+                 return new CommandException(Error.MISSING_RESOURCE);
+             case RILConstants.NO_SUCH_ELEMENT:
+                 return new CommandException(Error.NO_SUCH_ELEMENT);
++            case RILConstants.INVALID_PARAMETER:
++                 return new CommandException(Error.INVALID_PARAMETER);
+             case RILConstants.SUBSCRIPTION_NOT_SUPPORTED:
+                 return new CommandException(Error.SUBSCRIPTION_NOT_SUPPORTED);
+             case RILConstants.DIAL_MODIFIED_TO_USSD:
+diff --git a/src/java/com/android/internal/telephony/CommandsInterface.java b/src/java/com/android/internal/telephony/CommandsInterface.java
+index 6b00afb..6fbc2b0 100644
+--- a/src/java/com/android/internal/telephony/CommandsInterface.java
++++ b/src/java/com/android/internal/telephony/CommandsInterface.java
+@@ -1847,6 +1847,13 @@ public interface CommandsInterface {
+             int p3, String data, Message response);
+ 
+     /**
++     * Get ATR (Answer To Reset; as per ISO/IEC 7816-4) from SIM card
++     *
++     * @param response Callback message
++     */
++    public void getAtr(Message response);
++
++    /**
+      * Read one of the NV items defined in {@link RadioNVItems} / {@code ril_nv_items.h}.
+      * Used for device configuration by some CDMA operators.
+      *
+diff --git a/src/java/com/android/internal/telephony/RIL.java b/src/java/com/android/internal/telephony/RIL.java
+index c2f2c81..39c4ced 100644
+--- a/src/java/com/android/internal/telephony/RIL.java
++++ b/src/java/com/android/internal/telephony/RIL.java
+@@ -2652,6 +2652,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
+             case RIL_REQUEST_SIM_OPEN_CHANNEL: ret  = responseInts(p); break;
+             case RIL_REQUEST_SIM_CLOSE_CHANNEL: ret  = responseVoid(p); break;
+             case RIL_REQUEST_SIM_TRANSMIT_APDU_CHANNEL: ret = responseICC_IO(p); break;
++            case RIL_REQUEST_SIM_GET_ATR: ret = responseString(p); break;
+             case RIL_REQUEST_NV_READ_ITEM: ret = responseString(p); break;
+             case RIL_REQUEST_NV_WRITE_ITEM: ret = responseVoid(p); break;
+             case RIL_REQUEST_NV_WRITE_CDMA_PRL: ret = responseVoid(p); break;
+@@ -4815,6 +4816,21 @@ public class RIL extends BaseCommands implements CommandsInterface {
+                 p1, p2, p3, data, response);
+     }
+ 
++    /**
++     * {@inheritDoc}
++     */
++    @Override
++    public void getAtr(Message response) {
++        RILRequest rr = RILRequest.obtain(RIL_REQUEST_SIM_GET_ATR, response);
++        int slotId = 0;
++        rr.mParcel.writeInt(1);
++        rr.mParcel.writeInt(slotId);
++        if (RILJ_LOGD) riljLog(rr.serialString() + "> iccGetAtr: "
++                + requestToString(rr.mRequest) + " " + slotId);
++
++        send(rr);
++    }
++
+     /*
+      * Helper function for the iccTransmitApdu* commands above.
+      */
+diff --git a/src/java/com/android/internal/telephony/imsphone/ImsPhoneCommandInterface.java b/src/java/com/android/internal/telephony/imsphone/ImsPhoneCommandInterface.java
+index e8c44cf..976c888 100644
+--- a/src/java/com/android/internal/telephony/imsphone/ImsPhoneCommandInterface.java
++++ b/src/java/com/android/internal/telephony/imsphone/ImsPhoneCommandInterface.java
+@@ -569,20 +569,6 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
+     }
+ 
+     @Override
+-    public void iccOpenLogicalChannel(String AID, Message response) {}
+-
+-    @Override
+-    public void iccCloseLogicalChannel(int channel, Message response) {}
+-
+-    @Override
+-    public void iccTransmitApduLogicalChannel(int channel, int cla, int instruction,
+-                                              int p1, int p2, int p3, String data,
+-                                              Message response) {}
+-    @Override
+-    public void iccTransmitApduBasicChannel(int cla, int instruction, int p1, int p2,
+-                                            int p3, String data, Message response) {}
+-
+-    @Override
+     public void nvReadItem(int itemID, Message response) {}
+ 
+     @Override
+diff --git a/src/java/com/android/internal/telephony/sip/SipCommandInterface.java b/src/java/com/android/internal/telephony/sip/SipCommandInterface.java
+index 80b345a..79df418 100644
+--- a/src/java/com/android/internal/telephony/sip/SipCommandInterface.java
++++ b/src/java/com/android/internal/telephony/sip/SipCommandInterface.java
+@@ -570,24 +570,6 @@ class SipCommandInterface extends BaseCommands implements CommandsInterface {
+     }
+ 
+     @Override
+-    public void iccOpenLogicalChannel(String AID, Message response) {
+-    }
+-
+-    @Override
+-    public void iccCloseLogicalChannel(int channel, Message response) {
+-    }
+-
+-    @Override
+-    public void iccTransmitApduLogicalChannel(int channel, int cla, int instruction,
+-            int p1, int p2, int p3, String data, Message response) {
+-    }
+-
+-    @Override
+-    public void iccTransmitApduBasicChannel(int cla, int instruction, int p1, int p2,
+-            int p3, String data, Message response) {
+-    }
+-
+-    @Override
+     public void nvReadItem(int itemID, Message response) {
+     }
+ 
+diff --git a/src/java/com/android/internal/telephony/test/SimulatedCommands.java b/src/java/com/android/internal/telephony/test/SimulatedCommands.java
+index b006e72..ad0b700 100644
+--- a/src/java/com/android/internal/telephony/test/SimulatedCommands.java
++++ b/src/java/com/android/internal/telephony/test/SimulatedCommands.java
+@@ -1739,6 +1739,11 @@ public final class SimulatedCommands extends BaseCommands
+     }
+ 
+     @Override
++    public void getAtr(Message response) {
++        unimplemented(response);
++    }
++
++    @Override
+     public void nvReadItem(int itemID, Message response) {
+         unimplemented(response);
+     }
+diff --git a/src/java/com/android/internal/telephony/uicc/UiccCard.java b/src/java/com/android/internal/telephony/uicc/UiccCard.java
+index 117ea7d..12fad54 100644
+--- a/src/java/com/android/internal/telephony/uicc/UiccCard.java
++++ b/src/java/com/android/internal/telephony/uicc/UiccCard.java
+@@ -101,6 +101,7 @@ public class UiccCard {
+     private static final int EVENT_TRANSMIT_APDU_BASIC_CHANNEL_DONE = 18;
+     private static final int EVENT_SIM_IO_DONE = 19;
+     private static final int EVENT_CARRIER_PRIVILIGES_LOADED = 20;
++    private static final int EVENT_SIM_GET_ATR_DONE = 21;
+ 
+     private static final LocalLog mLocalLog = new LocalLog(100);
+ 
+@@ -423,6 +424,7 @@ public class UiccCard {
+                 case EVENT_TRANSMIT_APDU_LOGICAL_CHANNEL_DONE:
+                 case EVENT_TRANSMIT_APDU_BASIC_CHANNEL_DONE:
+                 case EVENT_SIM_IO_DONE:
++                case EVENT_SIM_GET_ATR_DONE:
+                     AsyncResult ar = (AsyncResult)msg.obj;
+                     if (ar.exception != null) {
+                         loglocal("Exception: " + ar.exception);
+@@ -587,6 +589,13 @@ public class UiccCard {
+     }
+ 
+     /**
++     * Exposes {@link CommandsInterface.getAtr}
++     */
++    public void getAtr(Message response) {
++        mCi.getAtr(mHandler.obtainMessage(EVENT_SIM_GET_ATR_DONE, response));
++    }
++
++    /**
+      * Exposes {@link CommandsInterface.sendEnvelopeWithStatus}
+      */
+     public void sendEnvelopeWithStatus(String contents, Message response) {
+-- 
+2.7.4
+

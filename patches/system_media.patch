@@ -1,0 +1,127 @@
+From 45e106edfa5b31f11818d2ab372b941467389463 Mon Sep 17 00:00:00 2001
+From: Steve Kondik <steve@cyngn.com>
+Date: Tue, 12 Jan 2016 16:35:57 -0800
+Subject: [PATCH 1/3] effects: Add AUDIO_EFFECT_VENDOR_CONFIG_FILE2
+
+Based on: http://review.cyanogenmod.org/#/c/127993/
+
+Change-Id: I457f8bd4229062a0348e7bcc1d88e1123aac4dc8
+---
+ audio_effects/include/audio_effects/audio_effects_conf.h | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/audio_effects/include/audio_effects/audio_effects_conf.h b/audio_effects/include/audio_effects/audio_effects_conf.h
+index d462c08..11d9019 100755
+--- a/audio_effects/include/audio_effects/audio_effects_conf.h
++++ b/audio_effects/include/audio_effects/audio_effects_conf.h
+@@ -25,6 +25,11 @@
+ 
+ #define AUDIO_EFFECT_DEFAULT_CONFIG_FILE "/system/etc/audio_effects.conf"
+ #define AUDIO_EFFECT_VENDOR_CONFIG_FILE "/vendor/etc/audio_effects.conf"
++
++// If the device ships a /vendor image which we can't modify but still want to
++// change the effects configuration from the default, we can load one from here
++#define AUDIO_EFFECT_VENDOR_CONFIG_FILE2 "/system/etc/audio_effects_vendor.conf"
++
+ #define LIBRARIES_TAG "libraries"
+ #define PATH_TAG "path"
+ 
+-- 
+2.7.4
+
+
+From c5d89be98916c1aca537d7e474b15599b037fdf5 Mon Sep 17 00:00:00 2001
+From: xplodwild <me@xplod.fr>
+Date: Fri, 15 Nov 2013 11:07:59 +0100
+Subject: [PATCH 2/3] [1/3] AudioEffects: Add center frequency param to
+ bassboost
+
+Change-Id: Ia47a3f679a82392232b33b72e8dbd3b2545ee109
+---
+ audio_effects/include/audio_effects/effect_bassboost.h | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/audio_effects/include/audio_effects/effect_bassboost.h b/audio_effects/include/audio_effects/effect_bassboost.h
+index 3735904..22d34df 100644
+--- a/audio_effects/include/audio_effects/effect_bassboost.h
++++ b/audio_effects/include/audio_effects/effect_bassboost.h
+@@ -33,7 +33,8 @@ const effect_uuid_t * const SL_IID_BASSBOOST = &SL_IID_BASSBOOST_;
+ typedef enum
+ {
+     BASSBOOST_PARAM_STRENGTH_SUPPORTED,
+-    BASSBOOST_PARAM_STRENGTH
++    BASSBOOST_PARAM_STRENGTH,
++    BASSBOOST_PARAM_CENTER_FREQUENCY
+ } t_bassboost_params;
+ 
+ #if __cplusplus
+-- 
+2.7.4
+
+
+From c69ff953ffe5e2126b14cab6e6f80eb4e1d2c3ad Mon Sep 17 00:00:00 2001
+From: xplodwild <xplod@ouverta.fr>
+Date: Fri, 15 Nov 2013 15:24:01 +0100
+Subject: [PATCH 3/3] [2/3] audio_effects: Add a stereo widening effect
+
+Change-Id: I0dd68fef857e8a031f52a63a81c642cb930419c6
+---
+ .../include/audio_effects/effect_stereowide.h      | 46 ++++++++++++++++++++++
+ 1 file changed, 46 insertions(+)
+ create mode 100644 audio_effects/include/audio_effects/effect_stereowide.h
+
+diff --git a/audio_effects/include/audio_effects/effect_stereowide.h b/audio_effects/include/audio_effects/effect_stereowide.h
+new file mode 100644
+index 0000000..69e89dd
+--- /dev/null
++++ b/audio_effects/include/audio_effects/effect_stereowide.h
+@@ -0,0 +1,46 @@
++/*
++ * Copyright (C) 2011 The Android Open Source Project
++ * Modifications Copyright (C) 2013 The OmniROM Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#ifndef ANDROID_EFFECT_STEREOWIDE_H_
++#define ANDROID_EFFECT_STEREOWIDE_H_
++
++#include <hardware/audio_effect.h>
++
++#if __cplusplus
++extern "C" {
++#endif
++
++#ifndef OPENSL_ES_H_
++/* 37cc2c00-dddd-11db-8577-0002a5d5c51c */
++static const effect_uuid_t SL_IID_STEREOWIDE_ = { 0x37cc2c00, 0xdddd, 0x11db, 0x8577,
++        { 0x00, 0x02, 0xa5, 0xd5, 0xc5, 0x1c } };
++const effect_uuid_t * const SL_IID_STEREOWIDE = &SL_IID_STEREOWIDE_;
++#endif //OPENSL_ES_H_
++
++/* enumerated parameter settings for stereowide effect */
++typedef enum
++{
++    STEREOWIDE_PARAM_STRENGTH_SUPPORTED,
++    STEREOWIDE_PARAM_STRENGTH
++} t_stereowide_params;
++
++#if __cplusplus
++}  // extern "C"
++#endif
++
++
++#endif /*ANDROID_EFFECT_VIRTUALIZER_H_*/
+-- 
+2.7.4
+
