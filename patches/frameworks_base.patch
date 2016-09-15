@@ -1,7 +1,7 @@
-From 06977cbf33a1ce8713de92dc0fc2d97073c1fc12 Mon Sep 17 00:00:00 2001
+From 29a2d57d825411f3cf12d76117c2ed77a75c96d9 Mon Sep 17 00:00:00 2001
 From: AdrianDC <radian.dc@gmail.com>
 Date: Wed, 18 Nov 2015 19:15:29 +0100
-Subject: [PATCH 1/4] MountService: Prevent NPE with DropBoxManager
+Subject: [PATCH 1/5] MountService: Prevent NPE with DropBoxManager
 
  * "java.lang.NullPointerException: Attempt to invoke virtual
     method 'void android.os.DropBoxManager.addText(java.lang.String,
@@ -9,6 +9,7 @@ Subject: [PATCH 1/4] MountService: Prevent NPE with DropBoxManager
 
 Change-Id: I418ba99caa4f55b184fabee4ad610ca3e5e7c66f
 Signed-off-by: AdrianDC <radian.dc@gmail.com>
+Signed-off-by: Dominggoes Isakh <drjisakh@gmail.com>
 ---
  services/core/java/com/android/server/MountService.java | 12 ++++++++----
  1 file changed, 8 insertions(+), 4 deletions(-)
@@ -47,10 +48,10 @@ index 5e67414..7869202 100644
 2.7.4
 
 
-From 3f787492fe4d890455e0034033f3844ba9838ca0 Mon Sep 17 00:00:00 2001
+From 71d260e438dd44a2f0dcbc9042868857ccfaaafe Mon Sep 17 00:00:00 2001
 From: Preeti Ahuja <preetia@codeaurora.org>
 Date: Thu, 21 Aug 2014 16:30:24 -0700
-Subject: [PATCH 2/4] SEEK: Following changes have been made for SEEK:
+Subject: [PATCH 2/5] SEEK: Following changes have been made for SEEK:
 
 1. Add support for getAtr api.
    Implement getAtr() for SEEK on Android.
@@ -68,6 +69,8 @@ Subject: [PATCH 2/4] SEEK: Following changes have been made for SEEK:
 
 CRs-Fixed: 718469
 Change-Id: If03cbd4f3b108b77ba7998a605776c8626290cee
+
+Signed-off-by: Dominggoes Isakh <drjisakh@gmail.com>
 ---
  .../com/android/internal/telephony/ITelephony.aidl | 94 ++++++++++++++++++++++
  .../android/internal/telephony/RILConstants.java   |  3 +-
@@ -236,12 +239,14 @@ index 2bd4497..af79ff8 100644
 2.7.4
 
 
-From c139a3a43d03e168169614de33fd2ad1c65c5957 Mon Sep 17 00:00:00 2001
+From ab8c6f0d3db5052d40c208799b008fc5b1c5c097 Mon Sep 17 00:00:00 2001
 From: xplodwild <me@xplod.fr>
 Date: Fri, 15 Nov 2013 17:45:40 +0100
-Subject: [PATCH 3/4] [3/3] AudioEffect: Add a stereo widener effect
+Subject: [PATCH 3/5] AudioEffect: Add a stereo widener effect
 
 Change-Id: Iab2035c5601394b060e7e77e85ad85aca6e4c89f
+
+Signed-off-by: Dominggoes Isakh <drjisakh@gmail.com>
 ---
  media/java/android/media/audiofx/AudioEffect.java |   5 +
  media/java/android/media/audiofx/StereoWide.java  | 280 ++++++++++++++++++++++
@@ -554,12 +559,14 @@ index 0000000..25f8ef5
 2.7.4
 
 
-From 7d0f8b2c17bda8917acfe5f5d8b72e0bfffd5e9e Mon Sep 17 00:00:00 2001
+From 28e4a9e4d426e27b64a881569fd0953dcbb6a23b Mon Sep 17 00:00:00 2001
 From: xplodwild <me@xplod.fr>
 Date: Fri, 15 Nov 2013 11:09:11 +0100
-Subject: [PATCH 4/4] [3/3] AudioFX: Add center frequency param to bassboost
+Subject: [PATCH 4/5] AudioFX: Add center frequency param to bassboost
 
 Change-Id: I38bd4f0080495d8e830efefc03cb9a716fd7f67c
+
+Signed-off-by: Dominggoes Isakh <drjisakh@gmail.com>
 ---
  media/java/android/media/audiofx/BassBoost.java | 31 ++++++++++++++++++++++++-
  1 file changed, 30 insertions(+), 1 deletion(-)
@@ -613,6 +620,79 @@ index a46cc22..d222a99 100644
       * The OnParameterChangeListener interface defines a method called by the BassBoost when a
       * parameter value has changed.
       */
+-- 
+2.7.4
+
+
+From b23d4d90c351f5e8099a3bec7897fb9e43536387 Mon Sep 17 00:00:00 2001
+From: rINanDO <drjisakh@gmail.com>
+Date: Sun, 10 Jul 2016 12:45:55 +0200
+Subject: [PATCH 5/5] DeviceIdleController: Implement custom time
+
+Change-Id: I2bc00031e5bf65b497a382b85e1193094d935412
+---
+ .../com/android/server/DeviceIdleController.java   | 24 ++++++++++++----------
+ 1 file changed, 13 insertions(+), 11 deletions(-)
+
+diff --git a/services/core/java/com/android/server/DeviceIdleController.java b/services/core/java/com/android/server/DeviceIdleController.java
+index 71650c3..820ff7a 100644
+--- a/services/core/java/com/android/server/DeviceIdleController.java
++++ b/services/core/java/com/android/server/DeviceIdleController.java
+@@ -100,10 +100,12 @@ public class DeviceIdleController extends SystemService
+         implements AnyMotionDetector.DeviceIdleCallback {
+     private static final String TAG = "DeviceIdleController";
+ 
+-    private static final boolean DEBUG = false;
++    private static final boolean DEBUG = true;
+ 
+     private static final boolean COMPRESS_TIME = false;
+ 
++    private static final boolean CUSTOM_TIME = true;
++
+     private static final String ACTION_STEP_IDLE_STATE =
+             "com.android.server.device_idle.STEP_IDLE_STATE";
+ 
+@@ -554,30 +556,30 @@ public class DeviceIdleController extends SystemService
+                 }
+ 
+                 INACTIVE_TIMEOUT = mParser.getLong(KEY_INACTIVE_TIMEOUT,
+-                        !COMPRESS_TIME ? 30 * 60 * 1000L : 3 * 60 * 1000L);
++                        CUSTOM_TIME ? 3 * 60 * 1000L : (!COMPRESS_TIME ? 30 * 60 * 1000L : 3 * 60 * 1000L));
+                 SENSING_TIMEOUT = mParser.getLong(KEY_SENSING_TIMEOUT,
+-                        !DEBUG ? 4 * 60 * 1000L : 60 * 1000L);
++                        CUSTOM_TIME ? 60 * 1000L : (!DEBUG ? 4 * 60 * 1000L : 60 * 1000L));
+                 LOCATING_TIMEOUT = mParser.getLong(KEY_LOCATING_TIMEOUT,
+-                        !DEBUG ? 30 * 1000L : 15 * 1000L);
++                        CUSTOM_TIME ? 15 * 1000L : (!DEBUG ? 30 * 1000L : 15 * 1000L));
+                 LOCATION_ACCURACY = mParser.getFloat(KEY_LOCATION_ACCURACY, 20);
+                 MOTION_INACTIVE_TIMEOUT = mParser.getLong(KEY_MOTION_INACTIVE_TIMEOUT,
+-                        !COMPRESS_TIME ? 10 * 60 * 1000L : 60 * 1000L);
++                        CUSTOM_TIME ? 60 * 1000L : (!COMPRESS_TIME ? 10 * 60 * 1000L : 60 * 1000L));
+                 IDLE_AFTER_INACTIVE_TIMEOUT = mParser.getLong(KEY_IDLE_AFTER_INACTIVE_TIMEOUT,
+-                        !COMPRESS_TIME ? 30 * 60 * 1000L : 3 * 60 * 1000L);
++                        CUSTOM_TIME ? 3 * 60 * 1000L : (!COMPRESS_TIME ? 30 * 60 * 1000L : 3 * 60 * 1000L));
+                 IDLE_PENDING_TIMEOUT = mParser.getLong(KEY_IDLE_PENDING_TIMEOUT,
+-                        !COMPRESS_TIME ? 5 * 60 * 1000L : 30 * 1000L);
++                        CUSTOM_TIME ? 5 * 60 * 1000L : (!COMPRESS_TIME ? 5 * 60 * 1000L : 30 * 1000L));
+                 MAX_IDLE_PENDING_TIMEOUT = mParser.getLong(KEY_MAX_IDLE_PENDING_TIMEOUT,
+-                        !COMPRESS_TIME ? 10 * 60 * 1000L : 60 * 1000L);
++                        CUSTOM_TIME ? 10 * 60 * 1000L : (!COMPRESS_TIME ? 10 * 60 * 1000L : 60 * 1000L));
+                 IDLE_PENDING_FACTOR = mParser.getFloat(KEY_IDLE_PENDING_FACTOR,
+                         2f);
+                 IDLE_TIMEOUT = mParser.getLong(KEY_IDLE_TIMEOUT,
+-                        !COMPRESS_TIME ? 60 * 60 * 1000L : 6 * 60 * 1000L);
++                        CUSTOM_TIME ? 60 * 60 * 1000L : (!COMPRESS_TIME ? 60 * 60 * 1000L : 6 * 60 * 1000L));
+                 MAX_IDLE_TIMEOUT = mParser.getLong(KEY_MAX_IDLE_TIMEOUT,
+-                        !COMPRESS_TIME ? 6 * 60 * 60 * 1000L : 30 * 60 * 1000L);
++                        CUSTOM_TIME ? 6 * 60 * 60 * 1000L : (!COMPRESS_TIME ? 6 * 60 * 60 * 1000L : 30 * 60 * 1000L));
+                 IDLE_FACTOR = mParser.getFloat(KEY_IDLE_FACTOR,
+                         2f);
+                 MIN_TIME_TO_ALARM = mParser.getLong(KEY_MIN_TIME_TO_ALARM,
+-                        !COMPRESS_TIME ? 60 * 60 * 1000L : 6 * 60 * 1000L);
++                        CUSTOM_TIME ? 60 * 60 * 1000L : (!COMPRESS_TIME ? 60 * 60 * 1000L : 6 * 60 * 1000L));
+                 MAX_TEMP_APP_WHITELIST_DURATION = mParser.getLong(
+                         KEY_MAX_TEMP_APP_WHITELIST_DURATION, 5 * 60 * 1000L);
+                 MMS_TEMP_APP_WHITELIST_DURATION = mParser.getLong(
 -- 
 2.7.4
 

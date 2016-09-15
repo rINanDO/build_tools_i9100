@@ -4,7 +4,7 @@ git format-patch -119 HEAD --stdout >../../build_tools_i9100/patches/frameworks_
 
 croot
 cd frameworks/base
-git format-patch -4 HEAD --stdout >../../build_tools_i9100/patches/frameworks_base.patch
+git format-patch -5 HEAD --stdout >../../build_tools_i9100/patches/frameworks_base.patch
 
 croot
 cd frameworks/native
